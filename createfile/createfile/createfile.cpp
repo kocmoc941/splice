@@ -3,6 +3,8 @@
 
 int main(int argc, char **argv)
 {
+    puts("press any key for create file");getchar();
+    getchar();
     HANDLE file = CreateFile(__TEXT("test"), GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE)
         return 0;

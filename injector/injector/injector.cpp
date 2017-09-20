@@ -91,14 +91,81 @@ const DWORD findProcessByName(const std::wstring &name)
     return 0;
 }
 
+HANDLE
+WINAPI
+MyCreateFileW(
+    _In_ LPCWSTR lpFileName,
+    _In_ DWORD dwDesiredAccess,
+    _In_ DWORD dwShareMode,
+    _In_opt_ LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+    _In_ DWORD dwCreationDisposition,
+    _In_ DWORD dwFlagsAndAttributes,
+    _In_opt_ HANDLE hTemplateFile
+)
+{
+    MessageBoxA(nullptr, "fake create file", "fuck", MB_OK);
+    return nullptr;
+}
+
+#pragma pack(push, one, 1)
+struct jmpRamp
+{
+    u_char jmp;
+    uint32_t offset;
+};
+#pragma pack(pop, one)
+
+uint32_t calculateAddr(void *a, void *b)
+{
+    return (uint32_t(a) - uint32_t(b) - 5);
+}
+
+void inject()
+{
+    HANDLE (*OriginCreateFileW)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+    HMODULE dll = GetModuleHandle(L"Kernel32.dll");
+    if (dll == INVALID_HANDLE_VALUE) {
+        printMessage(L"GetModuleHandle error get Kernel32.dll address");
+        return;
+    }
+
+    OriginCreateFileW = (HANDLE (*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD,
+            HANDLE))GetProcAddress(dll, "CreateFileW");
+
+    if (OriginCreateFileW != nullptr)
+        printMessage(L"OriginCreateFileW get address success");
+
+    jmpRamp *code;
+    code = (jmpRamp *)OriginCreateFileW;
+    DWORD old;
+    VirtualProtect(code, sizeof(jmpRamp), PAGE_EXECUTE_READWRITE, &old);
+    code->jmp = 0xE9;
+    code->offset = calculateAddr(MyCreateFileW, OriginCreateFileW);
+    VirtualProtect(code, sizeof(jmpRamp), old, &old);
+}
+
 int main(int argc, char **argv) 
 {
-    const DWORD id = findProcessByName(L"explorer");
+    const DWORD id = findProcessByName(L"createfile");
 
     if (!setTokenPrivileges(id))
         printMessage(L"setTokenPrivileges error");
     else
         printMessage(L"setTokenPrivileges success");
+    inject();
 
+    puts("press any key for create file"); getchar();
+    std::cin.get();
+    std::cin.clear();
+    HANDLE file = CreateFile(__TEXT("test"), GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return 0;
+    DWORD wr;
+
+    WriteFile(file, "yea", 4, &wr, nullptr);
+    CloseHandle(file);
+
+    std::cout << "press any key for exit";
+    std::cin.get();
     return 0;
 }
