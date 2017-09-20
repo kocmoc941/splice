@@ -1,0 +1,8 @@
+*.*
+!*proj
+!*.cpp
+!*.hpp
+!*.c
+!*.h
+!*.sln
+!*.gitignore
