@@ -117,16 +117,25 @@ struct jmpRamp
 
 uint32_t calculateAddr(void *a, void *b)
 {
-    return (uint32_t(a) - uint32_t(b) - 5);
+    uint32_t _a = (uint32_t)a;
+    uint32_t _b = (uint32_t)b;
+    if (_a < _b) {
+        printMessage(L"_a < _b");
+        return _b - _a - 5;
+    }
+    if (_a > _b) {
+        printMessage(L"_a > _b");
+        return _a - _b - 5;
+    }
 }
 
-void inject()
+DWORD inject(LPVOID arg)
 {
     HANDLE (*OriginCreateFileW)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
-    HMODULE dll = GetModuleHandle(L"Kernel32.dll");
+    HMODULE dll = GetModuleHandle(L"kernel32.dll");
     if (dll == INVALID_HANDLE_VALUE) {
-        printMessage(L"GetModuleHandle error get Kernel32.dll address");
-        return;
+        printMessage(L"GetModuleHandle error get kernel32.dll address");
+        return EXIT_FAILURE;
     }
 
     OriginCreateFileW = (HANDLE (*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD,
@@ -142,28 +151,57 @@ void inject()
     code->jmp = 0xE9;
     code->offset = calculateAddr(MyCreateFileW, OriginCreateFileW);
     VirtualProtect(code, sizeof(jmpRamp), old, &old);
+
+    return EXIT_SUCCESS;
+}
+
+void execToForeignModule(const DWORD pid)
+{
+    HMODULE hModule = GetModuleHandle(nullptr);
+    DWORD size = ((PIMAGE_OPTIONAL_HEADER)((LPVOID)((BYTE *)(hModule) + ((PIMAGE_DOS_HEADER)(hModule))->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER))))->SizeOfImage;
+    HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+    LPVOID alloc = (char *)VirtualAllocEx(process, hModule, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (process == nullptr)
+        return;
+
+    DWORD ByteOfWritten;
+    BOOL w = WriteProcessMemory(process, alloc, hModule, size, &ByteOfWritten);
+    if (w == false)
+        return;
+
+    DWORD id;
+    HANDLE thread = CreateRemoteThread(process, 0, 0, (LPTHREAD_START_ROUTINE)inject, (LPVOID)alloc, 0, &id);
+    if (thread == nullptr)
+        return;
+
+    printMessage(L"CreateRemoteThread success");
+    printMessage(L"waiting process");
+    WaitForSingleObject(process, INFINITE);
+    VirtualFree(alloc, size, MEM_RELEASE);
+    CloseHandle(process);
 }
 
 int main(int argc, char **argv) 
 {
-    const DWORD id = findProcessByName(L"createfile");
+    const DWORD pid = findProcessByName(L"createfile");
 
-    if (!setTokenPrivileges(id))
+    if (!setTokenPrivileges(pid))
         printMessage(L"setTokenPrivileges error");
     else
         printMessage(L"setTokenPrivileges success");
-    inject();
+    //inject();
+    execToForeignModule(pid);
 
-    puts("press any key for create file"); getchar();
+    /*puts("press any key for create file");
     std::cin.get();
-    std::cin.clear();
+    std::cin.ignore(std::cin.rdbuf()->in_avail());
     HANDLE file = CreateFile(__TEXT("test"), GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE)
         return 0;
     DWORD wr;
 
     WriteFile(file, "yea", 4, &wr, nullptr);
-    CloseHandle(file);
+    CloseHandle(file);*/
 
     std::cout << "press any key for exit";
     std::cin.get();
