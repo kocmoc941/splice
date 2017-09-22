@@ -40,6 +40,7 @@ bool setTokenPrivileges(const DWORD pid)
         return false;
     }
 
+    CloseHandle(pHandle);
     return true;
 }
 
@@ -216,7 +217,7 @@ void execDllToForeignModule(const DWORD pid, const std::string dllPath)
         return;
     }
     DWORD size = dllPath.length();
-    LPVOID alloc = (char *)VirtualAllocEx(process, 0, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    LPVOID alloc = (LPVOID)VirtualAllocEx(process, 0, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (process == nullptr) {
         printMessage(L"VirtualAllocEx return null address");
         return;
@@ -292,17 +293,6 @@ int main(int argc, char **argv)
 
     //execThisToForeignModule(pid);
     execDllToForeignModule(pid, "DllInject.dll");
-
-    /*puts("press any key for create file");
-    std::cin.get();
-    std::cin.ignore(std::cin.rdbuf()->in_avail());
-    HANDLE file = CreateFile(__TEXT("test"), GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return 0;
-    DWORD wr;
-
-    WriteFile(file, "yea", 4, &wr, nullptr);
-    CloseHandle(file);*/
 
     std::cout << "press any key for exit";
     std::cin.get();
