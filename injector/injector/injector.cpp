@@ -2,6 +2,7 @@
 #include <TlHelp32.h>
 
 #include <iostream>
+#include <fstream>
 
 void printMessage(std::wstring str)
 {
@@ -127,9 +128,10 @@ uint32_t calculateAddr(void *a, void *b)
         printMessage(L"_a > _b");
         return _a - _b - 5;
     }
+    return 0;
 }
 
-DWORD inject(LPVOID arg)
+DWORD inject()
 {
     HANDLE (*OriginCreateFileW)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
     HMODULE dll = GetModuleHandle(L"kernel32.dll");
@@ -141,8 +143,12 @@ DWORD inject(LPVOID arg)
     OriginCreateFileW = (HANDLE (*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD,
             HANDLE))GetProcAddress(dll, "CreateFileW");
 
-    if (OriginCreateFileW != nullptr)
+    if (OriginCreateFileW != nullptr) {
         printMessage(L"OriginCreateFileW get address success");
+    } else {
+        printMessage(L"OriginCreateFileW get address error");
+        return EXIT_FAILURE;
+    }
 
     jmpRamp *code;
     code = (jmpRamp *)OriginCreateFileW;
@@ -155,30 +161,120 @@ DWORD inject(LPVOID arg)
     return EXIT_SUCCESS;
 }
 
-void execToForeignModule(const DWORD pid)
+void execThisToForeignModule(const DWORD pid)
 {
     HMODULE hModule = GetModuleHandle(nullptr);
     DWORD size = ((PIMAGE_OPTIONAL_HEADER)((LPVOID)((BYTE *)(hModule) + ((PIMAGE_DOS_HEADER)(hModule))->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER))))->SizeOfImage;
     HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
-    LPVOID alloc = (char *)VirtualAllocEx(process, hModule, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (process == nullptr)
+    if (process == INVALID_HANDLE_VALUE) {
+        printMessage(L"OpenProcess error");
         return;
+    }
+    LPVOID alloc = (char *)VirtualAllocEx(process, hModule, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (process == nullptr) {
+        printMessage(L"VirtualAllocEx return null address");
+        return;
+    }
 
     DWORD ByteOfWritten;
     BOOL w = WriteProcessMemory(process, alloc, hModule, size, &ByteOfWritten);
-    if (w == false)
+    if (w == false) {
+        printMessage(L"WriteProcessMemory failure");
         return;
+    }
 
     DWORD id;
     HANDLE thread = CreateRemoteThread(process, 0, 0, (LPTHREAD_START_ROUTINE)inject, (LPVOID)alloc, 0, &id);
-    if (thread == nullptr)
+    if (thread == nullptr) {
+        printMessage(L"CreateRemoteThread error");
         return;
+    }
 
     printMessage(L"CreateRemoteThread success");
     printMessage(L"waiting process");
     WaitForSingleObject(process, INFINITE);
     VirtualFree(alloc, size, MEM_RELEASE);
     CloseHandle(process);
+}
+
+void execDllToForeignModule(const DWORD pid, const std::string dllPath)
+{
+    std::ifstream dll(dllPath, std::ios_base::in);
+    if (!dll.is_open()) {
+        printMessage(L"invalid dll name or path");
+        return;
+    }
+    dll.close();
+
+    HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+    if (process == INVALID_HANDLE_VALUE) {
+        printMessage(L"OpenProcess error");
+        return;
+    }
+    DWORD size = dllPath.length();
+    LPVOID alloc = (char *)VirtualAllocEx(process, 0, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (process == nullptr) {
+        printMessage(L"VirtualAllocEx return null address");
+        return;
+    }
+
+    DWORD byteOfWritten;
+    BOOL w = WriteProcessMemory(process, alloc, dllPath.c_str(), size, &byteOfWritten);
+    if (w == false) {
+        printMessage(L"WriteProcessMemory failure");
+        return;
+    } else {
+        wchar_t mess[128];
+        wsprintf(mess, L"Written %u bytes", byteOfWritten);
+        printMessage(mess);
+    }
+
+    HMODULE module = GetModuleHandle(L"kernel32.dll");
+    if (module == INVALID_HANDLE_VALUE) {
+        printMessage(L"GetModuleHandle error get kernel32.dll address");
+        return;
+    }
+    typedef HMODULE (* OriginalLoadLibraryA)(LPCTSTR lpFileName);
+    OriginalLoadLibraryA loadLib;
+    loadLib = (OriginalLoadLibraryA)GetProcAddress(module, "LoadLibraryA");
+    if (loadLib == nullptr) {
+        printMessage(L"GetProcAddress error get LoadLibraryA address");
+        return;
+    }
+    DWORD id;
+    HANDLE thread = CreateRemoteThread(process, 0, 0, (LPTHREAD_START_ROUTINE)loadLib, (LPVOID)alloc, 0, &id);
+    if (thread == nullptr) {
+        printMessage(L"CreateRemoteThread error");
+        return;
+    }
+
+    printMessage(L"CreateRemoteThread success");
+
+    printMessage(L"Waiting inject");
+    if (WaitForSingleObject(process, 1000) == WAIT_FAILED)
+        printMessage(L"WaitForSingleObject error");
+
+    if (!VirtualFreeEx(process, alloc, 0, MEM_RELEASE)) {
+        printMessage(L"VirtualFreeEx error");
+        DWORD errorMessageID = ::GetLastError();
+        if (errorMessageID == 0)
+            return;
+
+        LPSTR messageBuffer = nullptr;
+        size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, errorMessageID, MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+
+        std::string message(messageBuffer, size);
+        std::wstring wmessage(message.begin(), message.end());
+        printMessage(wmessage);
+
+        LocalFree(messageBuffer);
+    }
+
+    if (!CloseHandle(process))
+        printMessage(L"CloseHandle error");
+
+    printMessage(L"Inject success");
 }
 
 int main(int argc, char **argv) 
@@ -190,7 +286,8 @@ int main(int argc, char **argv)
     else
         printMessage(L"setTokenPrivileges success");
     //inject();
-    execToForeignModule(pid);
+    //execThisToForeignModule(pid);
+    execDllToForeignModule(pid, "DllInject.dll");
 
     /*puts("press any key for create file");
     std::cin.get();
