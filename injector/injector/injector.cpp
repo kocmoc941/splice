@@ -120,12 +120,12 @@ uint32_t calculateAddr(void *a, void *b)
 {
     uint32_t _a = (uint32_t)a;
     uint32_t _b = (uint32_t)b;
-    if (_a < _b) {
-        printMessage(L"_a < _b");
-        return _b - _a - 5;
-    }
     if (_a > _b) {
         printMessage(L"_a > _b");
+        return _b - _a - 5;
+    }
+    if (_a < _b) {
+        printMessage(L"_a < _b");
         return _a - _b - 5;
     }
     return 0;
@@ -164,13 +164,17 @@ DWORD inject()
 void execThisToForeignModule(const DWORD pid)
 {
     HMODULE hModule = GetModuleHandle(nullptr);
+    if (hModule == INVALID_HANDLE_VALUE) {
+        printMessage(L"GetModuleHandle error");
+        return;
+    }
     DWORD size = ((PIMAGE_OPTIONAL_HEADER)((LPVOID)((BYTE *)(hModule) + ((PIMAGE_DOS_HEADER)(hModule))->e_lfanew + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER))))->SizeOfImage;
     HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
     if (process == INVALID_HANDLE_VALUE) {
         printMessage(L"OpenProcess error");
         return;
     }
-    LPVOID alloc = (char *)VirtualAllocEx(process, hModule, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    LPVOID alloc = (LPVOID)VirtualAllocEx(process, 0, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (process == nullptr) {
         printMessage(L"VirtualAllocEx return null address");
         return;
@@ -193,7 +197,7 @@ void execThisToForeignModule(const DWORD pid)
     printMessage(L"CreateRemoteThread success");
     printMessage(L"waiting process");
     WaitForSingleObject(process, INFINITE);
-    VirtualFree(alloc, size, MEM_RELEASE);
+    VirtualFreeEx(process, alloc, size, 0);
     CloseHandle(process);
 }
 
@@ -285,7 +289,7 @@ int main(int argc, char **argv)
         printMessage(L"setTokenPrivileges error");
     else
         printMessage(L"setTokenPrivileges success");
-    //inject();
+
     //execThisToForeignModule(pid);
     execDllToForeignModule(pid, "DllInject.dll");
 

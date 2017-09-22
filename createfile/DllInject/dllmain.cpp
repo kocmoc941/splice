@@ -23,29 +23,35 @@ void printMessage(std::wstring str)
     WriteConsole(out, str.c_str(), str.length(), &wr, nullptr);
 }
 
-const uint32_t calculateAddr(void *a, void *b)
+const uint32_t calculateAddr(void *lpCode, void *lpTargetAddress)
 {
-    const auto _a = (uint32_t)a;
-    const auto _b = (uint32_t)b;
-    if (_a < _b) {
-        printMessage(L"_a < _b");
-        return _b - _a - 5;
+    const auto codeAddress = (uint32_t)lpCode + 5;
+    const auto targetAddress = (uint32_t)lpTargetAddress;
+    if (codeAddress > targetAddress) {
+        wchar_t buf[128];
+        wsprintf(buf, __TEXT("codeAddress > targetAddress\ncodeAddress = %X targetAddress = %X\n"
+            "targetAddress - codeAddress = %X"), codeAddress, targetAddress, targetAddress - codeAddress);
+        printMessage(buf);
+        return targetAddress - codeAddress;
     }
-    if (_a > _b) {
-        printMessage(L"_a > _b");
-        return _a - _b - 5;
+    if (codeAddress < targetAddress) {
+        wchar_t buf[128];
+        wsprintf(buf, __TEXT("codeAddress < targetAddress\ncodeAddress = %X targetAddress = %X\n"
+            "targetAddress - codeAddress = %X"), codeAddress, targetAddress, targetAddress - codeAddress);
+        printMessage(buf);
+        return codeAddress - targetAddress;
     }
     return 0;
 }
 
 HANDLE WINAPI MyCreateFileW(
-    _In_ LPCWSTR lpFileName,
-    _In_ DWORD dwDesiredAccess,
-    _In_ DWORD dwShareMode,
-    _In_opt_ LPSECURITY_ATTRIBUTES lpSecurityAttributes,
-    _In_ DWORD dwCreationDisposition,
-    _In_ DWORD dwFlagsAndAttributes,
-    _In_opt_ HANDLE hTemplateFile
+    LPCWSTR lpFileName,
+    DWORD dwDesiredAccess,
+    DWORD dwShareMode,
+    LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+    DWORD dwCreationDisposition,
+    DWORD dwFlagsAndAttributes,
+    HANDLE hTemplateFile
 )
 {
     MessageBoxA(nullptr, "fake create file", "fuck", MB_OK);
@@ -77,7 +83,7 @@ DWORD inject()
     DWORD old;
     VirtualProtect(code, sizeof(jmpRamp), PAGE_EXECUTE_READWRITE, &old);
     code->jmp = 0xE9;
-    code->offset = calculateAddr(MyCreateFileW, OriginCreateFileW);
+    code->offset = calculateAddr(code, &MyCreateFileW);
     VirtualProtect(code, sizeof(jmpRamp), old, &old);
     wchar_t mess[128];
     wsprintf(mess, L"hook setted, replaced %X on %X, press return for continue", (DWORD)OriginCreateFileW, (DWORD)MyCreateFileW);
@@ -108,10 +114,10 @@ BOOL APIENTRY DllMain( HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpRese
         break;
 	case DLL_THREAD_DETACH:
         printMessage(L"DLL_THREAD_DETACH");
-        //restoreInject();
         break;
 	case DLL_PROCESS_DETACH:
         printMessage(L"DLL_PROCESS_DETACH");
+        restoreInject();
 		break;
 	}
 	return TRUE;
