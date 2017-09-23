@@ -286,10 +286,10 @@ int main(int argc, char **argv)
 {
     const DWORD pid = findProcessByName(L"createfile");
 
-    if (!setTokenPrivileges(pid))
-        printMessage(L"setTokenPrivileges error");
-    else
-        printMessage(L"setTokenPrivileges success");
+    //if (!setTokenPrivileges(pid))
+    //    printMessage(L"setTokenPrivileges error");
+    //else
+    //    printMessage(L"setTokenPrivileges success");
 
     //execThisToForeignModule(pid);
     execDllToForeignModule(pid, "DllInject.dll");
