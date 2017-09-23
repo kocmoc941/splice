@@ -228,11 +228,11 @@ void execDllToForeignModule(const DWORD pid, const std::string dllPath)
     if (w == false) {
         printMessage(L"WriteProcessMemory failure");
         return;
-    } else {
-        wchar_t mess[128];
-        wsprintf(mess, L"Written %u bytes", byteOfWritten);
-        printMessage(mess);
     }
+
+    wchar_t mess[128];
+    wsprintf(mess, L"Written %u bytes", byteOfWritten);
+    printMessage(mess);
 
     HMODULE module = GetModuleHandle(L"kernel32.dll");
     if (module == INVALID_HANDLE_VALUE) {
